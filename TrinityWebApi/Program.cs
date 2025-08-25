@@ -8,6 +8,18 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
+// Development CORS policy to allow frontend dev server (ng serve)
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("DevCors", policy =>
+    {
+        policy.WithOrigins("http://localhost:4200")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
+
 builder.Services
     .AddOptions<TrinityWebApi.Configuration.ScriptureApiOptions>()
     .Bind(builder.Configuration.GetSection("ScriptureApi"))
@@ -41,6 +53,11 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+// Apply CORS in development
+if (app.Environment.IsDevelopment())
+{
+    app.UseCors("DevCors");
+}
 app.UseAuthorization();
 app.MapControllers();
 app.Run();
