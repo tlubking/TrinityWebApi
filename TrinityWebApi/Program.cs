@@ -1,6 +1,7 @@
 using Scalar.AspNetCore;
 using System.Net.Http.Headers;
 using Microsoft.Extensions.Http.Resilience;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -8,18 +9,24 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
-// Bind options
+// Options
 builder.Services
     .AddOptions<TrinityWebApi.Configuration.ScriptureApiOptions>()
     .Bind(builder.Configuration.GetSection("ScriptureApi"))
     .Validate(o => !string.IsNullOrWhiteSpace(o.ApiKey), "ScriptureApi:ApiKey is required.")
     .ValidateOnStart();
 
+// Forwarded headers (required behind Railway's proxy for HTTPS scheme)
+builder.Services.Configure<ForwardedHeadersOptions>(o =>
+{
+    o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+});
+
 // CORS
-const string CorsPolicyName = "Cors";
+const string CorsPolicy = "Cors";
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy(CorsPolicyName, policy =>
+    options.AddPolicy(CorsPolicy, policy =>
     {
         if (builder.Environment.IsDevelopment())
         {
@@ -27,19 +34,10 @@ builder.Services.AddCors(options =>
         }
         else
         {
-            var originsCsv = builder.Configuration["Cors:AllowedOrigins"]; // e.g. "https://app.example.com,https://www.example.com"
-            var origins = (originsCsv ?? string.Empty)
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-            if (origins.Length == 0)
-            {
-                // Fail closed by default in prod
-                policy.WithOrigins(Array.Empty<string>()).AllowAnyHeader().AllowAnyMethod();
-            }
-            else
-            {
+            var csv = builder.Configuration["Cors:AllowedOrigins"]; // e.g. https://app.example.com,https://www.example.com
+            var origins = (csv ?? string.Empty).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (origins.Length > 0)
                 policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod();
-            }
         }
     });
 });
@@ -70,8 +68,9 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference(); // /scalar
 }
 
+app.UseForwardedHeaders(); // must be before HttpsRedirection
 app.UseHttpsRedirection();
-app.UseCors(CorsPolicyName);
+app.UseCors(CorsPolicy);
 app.UseAuthorization();
 app.MapControllers();
 app.Run();
