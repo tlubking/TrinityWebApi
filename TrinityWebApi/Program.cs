@@ -5,24 +5,28 @@ using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Bind to Railway PORT if provided (useful when not using Dockerfile)
+var port = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrEmpty(port))
+{
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+}
+
 // Services
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
-// Options
 builder.Services
     .AddOptions<TrinityWebApi.Configuration.ScriptureApiOptions>()
     .Bind(builder.Configuration.GetSection("ScriptureApi"))
     .Validate(o => !string.IsNullOrWhiteSpace(o.ApiKey), "ScriptureApi:ApiKey is required.")
     .ValidateOnStart();
 
-// Forwarded headers (required behind Railway's proxy for HTTPS scheme)
 builder.Services.Configure<ForwardedHeadersOptions>(o =>
 {
     o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
 });
 
-// CORS
 const string CorsPolicy = "Cors";
 builder.Services.AddCors(options =>
 {
@@ -34,7 +38,7 @@ builder.Services.AddCors(options =>
         }
         else
         {
-            var csv = builder.Configuration["Cors:AllowedOrigins"]; // e.g. https://app.example.com,https://www.example.com
+            var csv = builder.Configuration["Cors:AllowedOrigins"];
             var origins = (csv ?? string.Empty).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
             if (origins.Length > 0)
                 policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod();
@@ -42,7 +46,6 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Typed HttpClient
 builder.Services.AddHttpClient("ScriptureApi", (sp, client) =>
 {
     var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<TrinityWebApi.Configuration.ScriptureApiOptions>>().Value;
@@ -57,20 +60,24 @@ builder.Services.AddHttpClient("ScriptureApi", (sp, client) =>
 .AddStandardResilienceHandler(options =>
 {
     options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(20);
-    options.Retry.MaxRetryAttempts = 3; // retry 5xx/408/429 with jittered backoff
+    options.Retry.MaxRetryAttempts = 3;
 });
 
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();            // /openapi/v1.json
-    app.MapScalarApiReference(); // /scalar
+    app.MapOpenApi();
+    app.MapScalarApiReference();
 }
 
-app.UseForwardedHeaders(); // must be before HttpsRedirection
+app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseCors(CorsPolicy);
 app.UseAuthorization();
+
+// Simple health endpoint for Railway probe
+app.MapGet("/", () => Results.Ok("OK"));
+
 app.MapControllers();
 app.Run();
