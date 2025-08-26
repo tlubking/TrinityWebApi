@@ -25,6 +25,8 @@ builder.Services
 builder.Services.Configure<ForwardedHeadersOptions>(o =>
 {
     o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    o.KnownNetworks.Clear();
+    o.KnownProxies.Clear();
 });
 
 const string CorsPolicy = "Cors";
@@ -64,6 +66,10 @@ builder.Services.AddHttpClient("ScriptureApi", (sp, client) =>
 });
 
 var app = builder.Build();
+app.Logger.LogInformation("BaseAddress: {Base}, AllowedOrigins: {Cors}, Env: {Env}",
+    builder.Configuration["ScriptureApi:BaseUrl"],
+    builder.Configuration["Cors:AllowedOrigins"],
+    app.Environment.EnvironmentName);
 
 if (app.Environment.IsDevelopment())
 {
