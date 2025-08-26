@@ -8,23 +8,41 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
-// Development CORS policy to allow frontend dev server (ng serve)
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("DevCors", policy =>
-    {
-        policy.WithOrigins("http://localhost:4200")
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
-    });
-});
-
+// Bind options
 builder.Services
     .AddOptions<TrinityWebApi.Configuration.ScriptureApiOptions>()
     .Bind(builder.Configuration.GetSection("ScriptureApi"))
     .Validate(o => !string.IsNullOrWhiteSpace(o.ApiKey), "ScriptureApi:ApiKey is required.")
     .ValidateOnStart();
+
+// CORS
+const string CorsPolicyName = "Cors";
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(CorsPolicyName, policy =>
+    {
+        if (builder.Environment.IsDevelopment())
+        {
+            policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
+        }
+        else
+        {
+            var originsCsv = builder.Configuration["Cors:AllowedOrigins"]; // e.g. "https://app.example.com,https://www.example.com"
+            var origins = (originsCsv ?? string.Empty)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            if (origins.Length == 0)
+            {
+                // Fail closed by default in prod
+                policy.WithOrigins(Array.Empty<string>()).AllowAnyHeader().AllowAnyMethod();
+            }
+            else
+            {
+                policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod();
+            }
+        }
+    });
+});
 
 // Typed HttpClient
 builder.Services.AddHttpClient("ScriptureApi", (sp, client) =>
@@ -53,11 +71,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-// Apply CORS in development
-if (app.Environment.IsDevelopment())
-{
-    app.UseCors("DevCors");
-}
+app.UseCors(CorsPolicyName);
 app.UseAuthorization();
 app.MapControllers();
 app.Run();
